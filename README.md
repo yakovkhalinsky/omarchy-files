@@ -50,6 +50,8 @@ clean Omarchy install or on top of an existing install.
 
 - The Pi collector reads `~/.pi/agent/sessions/*.jsonl`. It produces no output
   until Pi has recorded sessions.
-- `omarchy-agent-usage-update` is installed to `~/.local/bin` so it shadows
-  the packaged updater on PATH and refreshes the Pi record automatically.
+- `omarchy-agent-usage-update` is installed to `~/.local/bin` and, when the
+  Pi tool's bin directory exists, also to `~/.pi/agent/bin`. This ensures the
+  wrapper shadows the packaged Omarchy updater and refreshes the Pi record
+  automatically.
 - Make sure `~/.local/bin` is on PATH (Omarchy includes it by default).
