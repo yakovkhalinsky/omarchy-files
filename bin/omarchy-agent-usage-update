@@ -1,0 +1,19 @@
+#!/bin/bash
+# User wrapper that runs the packaged Omarchy usage updater, then refreshes
+# the local Pi usage record. This lives on PATH before /usr/share/omarchy/bin
+# so `omarchy agent usage-update` (and the agents widget refresh timer) pick
+# it up automatically.
+
+set -euo pipefail
+
+USAGE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/agents/usage"
+mkdir -p "$USAGE_DIR"
+
+# Run the real packaged updater first with all arguments.
+"/usr/share/omarchy/bin/omarchy-agent-usage-update" "$@" || true
+
+# Refresh the Pi record if the collector is available.
+if command -v omarchy-agent-usage-pi >/dev/null 2>&1; then
+  omarchy-agent-usage-pi >"$USAGE_DIR/pi.json.tmp"
+  mv "$USAGE_DIR/pi.json.tmp" "$USAGE_DIR/pi.json"
+fi
