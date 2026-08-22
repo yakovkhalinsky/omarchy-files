@@ -18,12 +18,16 @@ agents bar plugin.
 ```bash
 git clone https://github.com/yakovkhalinsky/omarchy-files.git
 cd omarchy-files
-./install.sh
+./install.sh --apply
 ```
 
-Then apply the theme and enable the plugin:
+`--apply` sets the theme and enables the plugin automatically. Without it the
+script just installs the files and prints the commands to apply them.
+
+Alternatively, install the files first and apply manually:
 
 ```bash
+./install.sh
 omarchy theme set netrunner
 omarchy plugin enable odessa.agents --section right
 omarchy restart shell
