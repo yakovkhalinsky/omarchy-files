@@ -1,0 +1,173 @@
+#!/usr/bin/python3
+# omarchy:summary=Generate an image using the BFL FLUX API
+# omarchy:args=[--model MODEL] [--width W] [--height H] [--output PATH] [--set-bg] <prompt>
+# omarchy:examples=omarchy bfl generate "cyberpunk city" | omarchy bfl generate --set-bg "neon skyline"
+"""Generate an image with Black Forest Labs (BFL.ai) and optionally set it as wallpaper.
+
+Reads the API key from ~/.odessa/.env (BFL_API_KEY=...). Defaults to a 16:9
+1920x1080 JPEG with flux-2-pro-preview. Polls the API until the image is ready,
+downloads it, and opens the result.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import requests
+
+API_BASE = "https://api.bfl.ai/v1"
+ENV_FILE = Path.home() / ".odessa" / ".env"
+OUTPUT_DIR = Path.home() / "Pictures" / "bfl"
+DEFAULT_MODEL = "flux-2-pro-preview"
+DEFAULT_WIDTH = 1920
+DEFAULT_HEIGHT = 1080
+
+
+def load_api_key() -> str | None:
+    if ENV_FILE.exists():
+        try:
+            for line in ENV_FILE.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("BFL_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip('"')
+        except Exception:
+            pass
+    return os.environ.get("BFL_API_KEY") or os.environ.get("BLACK_FOREST_LABS_API_KEY")
+
+
+def fail(message: str) -> None:
+    print(f"omarchy-bfl-generate: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def submit(model: str, prompt: str, width: int, height: int, output_format: str, api_key: str) -> dict[str, Any]:
+    url = f"{API_BASE}/{model}"
+    headers = {
+        "accept": "application/json",
+        "x-key": api_key,
+        "Content-Type": "application/json",
+    }
+    payload: dict[str, Any] = {
+        "prompt": prompt,
+        "width": width,
+        "height": height,
+        "output_format": output_format,
+    }
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        try:
+            detail = response.json()
+        except Exception:
+            detail = response.text
+        fail(f"BFL submit failed ({e.response.status_code}): {detail}")
+    return response.json()
+
+
+def poll_result(polling_url: str, api_key: str, timeout: float = 180.0, interval: float = 1.0) -> dict[str, Any]:
+    headers = {"accept": "application/json", "x-key": api_key}
+    start = time.time()
+    while True:
+        response = requests.get(polling_url, headers=headers, timeout=30)
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            fail(f"BFL poll failed ({e.response.status_code}): {response.text}")
+
+        data = response.json()
+        status = data.get("status")
+        if status == "Ready":
+            return data
+        if status in ("Error", "Failed", "Request Moderated", "Content Moderated"):
+            fail(f"BFL generation failed: {status} — {data.get('error') or data}")
+        if time.time() - start >= timeout:
+            fail(f"BFL generation timed out after {timeout}s (last status: {status})")
+        time.sleep(interval)
+
+
+def download(url: str, dest: Path) -> None:
+    response = requests.get(url, timeout=120)
+    response.raise_for_status()
+    dest.write_bytes(response.content)
+
+
+def notify(headline: str, description: str = "", image: str = "") -> None:
+    cmd = ["omarchy-notification-send", "-u", "normal", headline]
+    if description:
+        cmd.append(description)
+    if image:
+        cmd.insert(1, "--image")
+        cmd.insert(2, image)
+    try:
+        subprocess.run(cmd, check=False)
+    except Exception:
+        pass
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Generate an image with BFL.ai.")
+    parser.add_argument("prompt", help="Text prompt for the image")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"BFL model endpoint (default: {DEFAULT_MODEL})")
+    parser.add_argument("--width", type=int, default=DEFAULT_WIDTH, help=f"Image width (default: {DEFAULT_WIDTH})")
+    parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT, help=f"Image height (default: {DEFAULT_HEIGHT})")
+    parser.add_argument("--format", dest="output_format", default="jpeg", choices=["jpeg", "png", "webp"], help="Output format (default: jpeg)")
+    parser.add_argument("--output", help="Destination path (default: ~/Pictures/bfl/<model>-<timestamp>.<ext>)")
+    parser.add_argument("--set-bg", action="store_true", help="Set the generated image as the current background")
+    args = parser.parse_args()
+
+    api_key = load_api_key()
+    if not api_key:
+        fail("BFL_API_KEY not found in ~/.odessa/.env or environment")
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    ext = args.output_format
+    if args.output:
+        dest = Path(args.output).expanduser().resolve()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+        safe_model = args.model.replace("/", "-")
+        dest = OUTPUT_DIR / f"{safe_model}-{timestamp}.{ext}"
+
+    notify("Generating BFL image...", args.prompt[:80])
+
+    submitted = submit(args.model, args.prompt, args.width, args.height, args.output_format, api_key)
+    polling_url = submitted.get("polling_url")
+    if not polling_url:
+        fail(f"BFL response missing polling_url: {submitted}")
+
+    print(f"Submitted: {submitted.get('id')}")
+    result = poll_result(polling_url, api_key)
+    sample_url = result.get("result", {}).get("sample")
+    if not sample_url:
+        fail(f"BFL result missing sample URL: {result}")
+
+    download(sample_url, dest)
+    print(f"Saved: {dest}")
+
+    if args.set_bg:
+        subprocess.run(["omarchy-theme-bg-set", str(dest)], check=True)
+        notify("Background updated", str(dest), str(dest))
+    else:
+        notify("BFL image ready", str(dest), str(dest))
+
+    # Open the image for review.
+    try:
+        subprocess.run(["xdg-open", str(dest)], check=False)
+    except Exception:
+        pass
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

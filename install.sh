@@ -19,17 +19,21 @@ fi
 "$SCRIPT_DIR/install-theme.sh"
 echo
 "$SCRIPT_DIR/install-plugin.sh"
+echo
+"$SCRIPT_DIR/install-extensions.sh"
 
 if (( APPLY )); then
   echo
-  echo "Applying theme and enabling plugin..."
+  echo "Applying theme, enabling plugin, and refreshing menu..."
   omarchy theme set netrunner
   omarchy plugin enable odessa.agents --section right
+  omarchy menu refresh
   omarchy restart shell
 else
   echo
   echo "Install complete. Next steps:"
   echo "  omarchy theme set netrunner"
   echo "  omarchy plugin enable odessa.agents --section right"
+  echo "  omarchy menu refresh"
   echo "  omarchy restart shell"
 fi

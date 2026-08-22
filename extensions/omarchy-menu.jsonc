@@ -1,0 +1,8 @@
+{
+  // BFL image generation extension for the Omarchy menu.
+  "trigger.bfl": {"icon":"󰋵","label":"BFL","aliases":["bfl","flux","generate-image"],"description":"Generate an image with Black Forest Labs"},
+  "trigger.bfl.generate": {"icon":"󰋵","label":"Generate","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the image...\" --header \"BFL prompt\" --value \"cyberpunk neon city at night, rain, reflections\")\" --set-bg'"},
+  "trigger.bfl.generate.portrait": {"icon":"󰋵","label":"Portrait 9:16","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the portrait...\" --header \"BFL prompt\" --value \"futuristic portrait, neon lighting\")\" --width 1080 --height 1920 --set-bg'"},
+  "trigger.bfl.generate.square": {"icon":"󰋵","label":"Square 1:1","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the image...\" --header \"BFL prompt\" --value \"abstract digital art, neon green\")\" --width 1024 --height 1024 --set-bg'"},
+  "trigger.bfl.generate.wallpaper": {"icon":"󰋵","label":"Wallpaper 16:9","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the wallpaper...\" --header \"BFL prompt\" --value \"wide cyberpunk cityscape at night\")\" --width 1920 --height 1080 --set-bg'"}
+}

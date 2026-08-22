@@ -13,6 +13,9 @@ agents bar plugin.
 | `bin/omarchy-agent-usage-pi` | Collector that turns Pi JSONL sessions into an agents-panel record |
 | `bin/omarchy-agent-usage-update` | Wrapper that calls the real Omarchy updater, then refreshes the Pi record |
 
+| `extensions/omarchy-menu.jsonc` | Omarchy menu entries under **Trigger → BFL** |
+| `bin/omarchy-bfl-generate` | BFL.ai image generator with optional `--set-bg` |
+
 ## Install everything
 
 ```bash
@@ -21,7 +24,7 @@ cd omarchy-files
 ./install.sh --apply
 ```
 
-`--apply` sets the theme and enables the plugin automatically. Without it the
+`--apply` sets the theme, enables the plugin, and refreshes the menu automatically. Without it the
 script just installs the files and prints the commands to apply them.
 
 Alternatively, install the files first and apply manually:
@@ -30,14 +33,16 @@ Alternatively, install the files first and apply manually:
 ./install.sh
 omarchy theme set netrunner
 omarchy plugin enable odessa.agents --section right
+omarchy menu refresh
 omarchy restart shell
 ```
 
 ## Install components separately
 
 ```bash
-./install-theme.sh    # theme + extra backgrounds only
-./install-plugin.sh   # plugin + Pi collectors only
+./install-theme.sh      # theme + extra backgrounds only
+./install-plugin.sh     # plugin + Pi collectors only
+./install-extensions.sh # BFL menu extension + generator command only
 ```
 
 ## Updating
