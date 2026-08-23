@@ -7,8 +7,8 @@ agents bar plugin.
 
 | Path | What |
 |------|------|
-| `install-system.sh` | System prerequisites: Chrome (AUR), Ollama, Hyprland scaling 1.25, Pi via mise, Pi default provider/model |
-| `theme/netrunner/` | Custom Omarchy theme (colors, Neovim/Vscode themes, backgrounds) |
+| `install-system.sh` | System prerequisites: Chrome (AUR), Ollama, Kitty (default terminal + netrunner theme), Hyprland scaling 1.25, Pi via mise, Pi default provider/model |
+| `theme/netrunner/` | Custom Omarchy theme (colors, Neovim/Vscode/Kitty themes, backgrounds) |
 | `backgrounds/netrunner/` | Extra per-theme backgrounds |
 | `plugin/odessa.agents/` | Custom Omarchy shell plugin (cloned from `omarchy.agents`) with Pi support |
 | `bin/omarchy-agent-usage-pi` | Collector that turns Pi JSONL sessions into an agents-panel record |
@@ -72,3 +72,9 @@ clean Omarchy install or on top of an existing install.
   `extra/ollama-cuda` when an NVIDIA GPU is detected) — Arch's repackage of
   the same upstream binary that ollama.com's install script drops into
   `/usr/local/bin`.
+- Kitty is installed and set as the default terminal in `xdg-terminals.list`,
+  so `Super+Return`, `omarchy-launch-terminal`, and any `xdg-terminal-exec`
+  caller all open it. The netrunner theme ships its own `kitty.conf` with
+  inline palette + extra padding (16px), 10pt font, powerline tab bar in
+  neon green, and a silent visual bell — drop into a fresh shell with
+  `omarchy theme set netrunner` (or just re-run `./install.sh --apply`).

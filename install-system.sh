@@ -26,6 +26,7 @@ SCALE="1.25"
 PI_VERSION="latest"
 PI_PROVIDER="ollama"
 PI_MODEL="minimax-m3:cloud"
+KITTY_PKG="kitty"
 
 note() { printf '  • %s\n' "$*"; }
 ok() { printf '  ✓ %s\n' "$*"; }
@@ -197,6 +198,64 @@ apply_scaling() {
   fi
 }
 
+# ------------------------------------------------------------------ kitty
+
+install_kitty() {
+  # Kitty is the default terminal in this Omarchy install. We install the
+  # package when missing, drop Omarchy's default config if there isn't one
+  # yet (so a fresh machine still gets font/keybinding defaults), and then
+  # set kitty as the default terminal so Super+Return, omarchy-launch-terminal,
+  # and xdg-terminal-exec all open it.
+  if ! command_exists kitty; then
+    if command_exists pacman; then
+      echo "Installing $KITTY_PKG from [extra]..."
+      if command_exists sudo && sudo -n true 2>/dev/null; then
+        sudo pacman -S --needed --noconfirm "$KITTY_PKG"
+      else
+        pacman -S --needed --noconfirm "$KITTY_PKG"
+      fi
+    else
+      warn "pacman not found — install kitty manually before continuing"
+      return
+    fi
+  fi
+
+  if ! command_exists kitty; then
+    warn "kitty install reported success but binary is missing"
+    return
+  fi
+  ok "kitty installed"
+
+  # Drop the default Omarchy kitty.conf on first install so the font, padding,
+  # keybindings, and the theme include are all in place. A user-customised
+  # kitty.conf is left alone — only an empty/missing directory gets seeded.
+  local kitty_dir="$HOME/.config/kitty"
+  if [[ ! -f $kitty_dir/kitty.conf ]]; then
+    mkdir -p "$kitty_dir"
+    if [[ -f $OMARCHY_PATH/config/kitty/kitty.conf ]]; then
+      cp "$OMARCHY_PATH/config/kitty/kitty.conf" "$kitty_dir/kitty.conf"
+      ok "seeded ~/.config/kitty/kitty.conf from Omarchy defaults"
+    fi
+  fi
+
+  # Make kitty the default terminal. omarchy default terminal writes
+  # ~/.config/xdg-terminals.list and notifies the user; the next
+  # omarchy-launch-terminal / xdg-terminal-exec call will then open kitty.
+  if command_exists omarchy-default-terminal; then
+    local current_default
+    current_default="$(omarchy-default-terminal 2>/dev/null || true)"
+    if [[ $current_default == "kitty" ]]; then
+      ok "kitty already set as the default terminal"
+    else
+      echo "Setting kitty as the default terminal..."
+      omarchy-default-terminal kitty >/dev/null
+      ok "kitty is now the default terminal (current: $current_default → kitty)"
+    fi
+  else
+    warn "omarchy-default-terminal not found — set kitty manually if needed"
+  fi
+}
+
 # ------------------------------------------------------------------ pi
 
 install_pi() {
@@ -235,6 +294,8 @@ install_chrome
 echo
 install_ollama
 echo
+install_kitty
+echo
 install_pi
 
 if (( APPLY )); then
@@ -254,8 +315,9 @@ command_exists google-chrome && local_chrome="${local_chrome:+$local_chrome, }go
 if [[ -z $local_chrome ]]; then
   command_exists chromium && local_chrome="chromium" || local_chrome="not installed"
 fi
-echo "  • Chrome:       $local_chrome"
-echo "  • Ollama:       $(command_exists ollama && echo installed || echo 'not installed')"
-echo "  • Hyprland scaling: $(command_exists omarchy-hyprland-monitor-scaling && omarchy-hyprland-monitor-scaling 2>/dev/null || echo 'unknown')"
-echo "  • Pi provider:  $(pi_setting defaultProvider)"
-echo "  • Pi model:     $(pi_setting defaultModel)"
+echo "  • Chrome:              $local_chrome"
+echo "  • Ollama:              $(command_exists ollama && echo installed || echo 'not installed')"
+echo "  • Kitty (default):     $(command_exists kitty && (command_exists omarchy-default-terminal && [ "$(omarchy-default-terminal 2>/dev/null)" = kitty ] && echo "installed, default" || echo "installed, not default") || echo 'not installed')"
+echo "  • Hyprland scaling:    $(command_exists omarchy-hyprland-monitor-scaling && omarchy-hyprland-monitor-scaling 2>/dev/null || echo 'unknown')"
+echo "  • Pi provider:         $(pi_setting defaultProvider)"
+echo "  • Pi model:            $(pi_setting defaultModel)"
