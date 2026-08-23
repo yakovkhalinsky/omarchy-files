@@ -1,11 +1,13 @@
 #!/bin/bash
 # Install everything in this repo:
+#   - System prerequisites (Chrome, Ollama, Hyprland scaling, Pi)
 #   - Netrunner Omarchy theme
 #   - odessa.agents Omarchy bar plugin
 #   - Pi usage collector wrapper + scripts
 #
 # Usage: ./install.sh [--apply]
-#   --apply  Also set the theme and enable the plugin (default: just print steps)
+#   --apply  Also set the theme, enable the plugin, apply scaling, and refresh the menu
+#            (default: just install files and print steps)
 
 set -euo pipefail
 
@@ -16,6 +18,8 @@ if (( $# > 0 )) && [[ $1 == --apply ]]; then
   APPLY=1
 fi
 
+"$SCRIPT_DIR/install-system.sh" "$@"
+echo
 "$SCRIPT_DIR/install-theme.sh"
 echo
 "$SCRIPT_DIR/install-plugin.sh"

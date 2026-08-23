@@ -58,6 +58,44 @@ update_path=$(command -v omarchy-agent-usage-update || true)
 if [[ -n $update_path && $update_path == /usr/share/omarchy/bin/* ]]; then
   echo "Warning: $update_path is first on PATH. The Pi auto-refresh wrapper will not be used." >&2
   echo "  Install pi with mise, or put $BIN_DEST before /usr/share/omarchy/bin on PATH." >&2
+  echo "  Falling back to a user systemd timer that refreshes all agent records every 15 minutes." >&2
+
+  systemd_user_dir="$HOME/.config/systemd/user"
+  mkdir -p "$systemd_user_dir"
+
+  cat > "$systemd_user_dir/omarchy-agent-usage-refresh.service" << 'UNIT'
+[Unit]
+Description=Refresh Omarchy agent usage records (claude/codex/fireworks/pi)
+After=default.target
+
+[Service]
+Type=oneshot
+Environment=HOME=%h
+Environment=XDG_STATE_HOME=%h/.local/state
+ExecStart=/bin/bash -c '/usr/bin/omarchy-agent-usage-update --except pi && "$HOME/.local/bin/omarchy-agent-usage-pi" > "$HOME/.local/state/omarchy/agents/usage/pi.json.tmp" && mv "$HOME/.local/state/omarchy/agents/usage/pi.json.tmp" "$HOME/.local/state/omarchy/agents/usage/pi.json"'
+UNIT
+
+  cat > "$systemd_user_dir/omarchy-agent-usage-refresh.timer" << 'UNIT'
+[Unit]
+Description=Refresh Omarchy agent usage every 15 minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=15min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  if systemctl --user enable --now omarchy-agent-usage-refresh.timer >/dev/null 2>&1; then
+    echo "Installed systemd timer: omarchy-agent-usage-refresh.timer (every 15 minutes)"
+  else
+    echo "Wrote systemd units to $systemd_user_dir — enable with:" >&2
+    echo "  systemctl --user daemon-reload && systemctl --user enable --now omarchy-agent-usage-refresh.timer" >&2
+  fi
 fi
 
 omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
