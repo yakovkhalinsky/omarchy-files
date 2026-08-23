@@ -1,0 +1,44 @@
+# --- secrets and credentials ---------------------------------------------
+# Anything that smells like a key, token, or auth material. The repo has
+# no .env today; this rule keeps it that way.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+credentials*
+secrets*
+
+# --- editor and OS droppings ---------------------------------------------
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# --- python (bin/omarchy-agent-usage-pi is a shebang python3 script) ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- shell session artefacts --------------------------------------------
+.history
+.bash_history
+
+# --- misc build / temp ----------------------------------------------------
+*.tmp
+*.bak
+*.orig
+*.rej
+core
+core.*
