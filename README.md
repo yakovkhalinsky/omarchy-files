@@ -12,8 +12,7 @@ agents bar plugin.
 | `plugin/odessa.agents/` | Custom Omarchy shell plugin (cloned from `omarchy.agents`) with Pi support |
 | `bin/omarchy-agent-usage-pi` | Collector that turns Pi JSONL sessions into an agents-panel record |
 | `bin/omarchy-agent-usage-update` | Wrapper that calls the real Omarchy updater, then refreshes the Pi record |
-
-| `extensions/omarchy-menu.jsonc` | Omarchy menu entries under **Trigger → BFL** |
+| `extensions/omarchy-menu.jsonc` | Omarchy menu entries under **Trigger → BFL** and **Trigger → Pi** |
 | `bin/omarchy-bfl-generate` | BFL.ai image generator with optional `--set-bg` |
 
 ## Install everything
@@ -42,7 +41,7 @@ omarchy restart shell
 ```bash
 ./install-theme.sh      # theme + extra backgrounds only
 ./install-plugin.sh     # plugin + Pi collectors only
-./install-extensions.sh # BFL menu extension + generator command only
+./install-extensions.sh # BFL + Pi menu extension and generator command only
 ```
 
 ## Updating
