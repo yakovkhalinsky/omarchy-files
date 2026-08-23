@@ -1,8 +1,17 @@
 {
-  // BFL image generation extension for the Omarchy menu.
+  // User extensions for the Omarchy menu: BFL image generation and Pi agent shortcuts.
+
+  // BFL image generation
   "trigger.bfl": {"icon":"󰋵","label":"BFL","aliases":["bfl","flux","generate-image"],"description":"Generate an image with Black Forest Labs"},
   "trigger.bfl.generate": {"icon":"󰋵","label":"Generate","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the image...\" --header \"BFL prompt\" --value \"cyberpunk neon city at night, rain, reflections\")\" --set-bg'"},
   "trigger.bfl.generate.portrait": {"icon":"󰋵","label":"Portrait 9:16","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the portrait...\" --header \"BFL prompt\" --value \"futuristic portrait, neon lighting\")\" --width 1080 --height 1920 --set-bg'"},
   "trigger.bfl.generate.square": {"icon":"󰋵","label":"Square 1:1","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the image...\" --header \"BFL prompt\" --value \"abstract digital art, neon green\")\" --width 1024 --height 1024 --set-bg'"},
-  "trigger.bfl.generate.wallpaper": {"icon":"󰋵","label":"Wallpaper 16:9","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the wallpaper...\" --header \"BFL prompt\" --value \"wide cyberpunk cityscape at night\")\" --width 1920 --height 1080 --set-bg'"}
+  "trigger.bfl.generate.wallpaper": {"icon":"󰋵","label":"Wallpaper 16:9","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-bfl-generate \"$(gum input --placeholder \"Describe the wallpaper...\" --header \"BFL prompt\" --value \"wide cyberpunk cityscape at night\")\" --width 1920 --height 1080 --set-bg'"},
+
+  // Pi agent shortcuts
+  "trigger.pi": {"icon":"","iconFont":"omarchy","label":"Pi","aliases":["pi-agent"],"description":"Pi coding agent shortcuts","when":"omarchy-cmd-present pi"},
+  "trigger.pi.launch": {"icon":"","iconFont":"omarchy","label":"Launch Pi","action":"omarchy-launch-floating-terminal-with-presentation 'cd \"$HOME/Work\" && pi'"},
+  "trigger.pi.prompt": {"icon":"","iconFont":"omarchy","label":"Pi with prompt","action":"omarchy-launch-floating-terminal-with-presentation 'cd \"$HOME/Work\" && pi \"$(gum input --placeholder \"Ask Pi...\" --header \"Pi prompt\")\"'"},
+  "trigger.pi.default": {"icon":"","iconFont":"omarchy","label":"Set Pi as default","checked":"[[ \"$(omarchy-default-agent)\" == \"pi\" ]]","action":"omarchy-default-agent pi"},
+  "trigger.pi.usage": {"icon":"","iconFont":"omarchy","label":"Refresh Pi usage","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-agent-usage-pi | jq .'"}
 }
