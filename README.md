@@ -7,7 +7,7 @@ agents bar plugin.
 
 | Path | What |
 |------|------|
-| `install-system.sh` | System prerequisites: Chrome (AUR), Ollama, Kitty (default terminal + netrunner theme), Hyprland scaling 1.25, Pi via mise, Pi default provider/model |
+| `install-system.sh` | System prerequisites: Chrome (AUR), Ollama, Kitty (default terminal + netrunner theme), Hyprland scaling 1.25, Pi via mise, Pi default provider/model, GitHub CLI (`gh` from [extra] with `google-chrome` set as its browser), Tailscale (from [extra] with `tailscaled.service` enabled). Under `--apply` it also launches Chrome once so password managers / OAuth logins can be completed, runs `ollama signin`, `gh auth login --web`, `sudo tailscale up`, and `ollama launch pi --config` (which wires the ollama provider into pi together with the web-search/fetch tools). |
 | `theme/netrunner/` | Custom Omarchy theme (colors, Neovim/Vscode/Kitty themes, backgrounds) |
 | `backgrounds/netrunner/` | Extra per-theme backgrounds |
 | `plugin/odessa.agents/` | Custom Omarchy shell plugin (cloned from `omarchy.agents`) with Pi support |
@@ -72,6 +72,16 @@ clean Omarchy install or on top of an existing install.
   `extra/ollama-cuda` when an NVIDIA GPU is detected) — Arch's repackage of
   the same upstream binary that ollama.com's install script drops into
   `/usr/local/bin`.
+- Under `--apply` the system installer also runs the interactive first-run
+  flows in this order: launch Google Chrome (so password managers / OAuth
+  can be completed in parallel), `ollama signin`, `gh auth login --web`
+  (gh is pre-configured with `google-chrome` as its browser, so the OAuth
+  callback lands in the same window), `sudo tailscale up` (adds this device
+  to your tailnet), and `ollama launch pi --config` (wires ollama into pi
+  and installs the web-search/fetch tools). Each step is gated by an
+  idempotency check (`gh auth status`, `~/.ollama/id_ed25519`, `tailscale
+  status`), so re-running the installer only re-prompts for what's still
+  missing.
 - Kitty is installed and set as the default terminal in `xdg-terminals.list`,
   so `Super+Return`, `omarchy-launch-terminal`, and any `xdg-terminal-exec`
   caller all open it. The netrunner theme ships its own `kitty.conf` with

@@ -1,12 +1,15 @@
 #!/bin/bash
 # Install everything in this repo:
-#   - System prerequisites (Chrome, Ollama, Hyprland scaling, Pi)
+#   - System prerequisites (Chrome, Ollama, Kitty, Pi, gh, Tailscale, scaling)
 #   - Netrunner Omarchy theme
 #   - odessa.agents Omarchy bar plugin
 #   - Pi usage collector wrapper + scripts
 #
 # Usage: ./install.sh [--apply]
-#   --apply  Also set the theme, enable the plugin, apply scaling, and refresh the menu
+#   --apply  Also set the theme, enable the plugin, run the system first-run
+#            auth flows (Chrome login, ollama signin, gh auth login, tailscale
+#            up, ollama launch pi --config), apply scaling, and refresh the
+#            menu
 #            (default: just install files and print steps)
 
 set -euo pipefail
