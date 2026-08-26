@@ -1,19 +1,24 @@
 #!/bin/bash
 # Install the system-level pieces the omarchy-files repo assumes are present:
-#   - google-chrome (AUR) for browsing
-#   - ollama (Arch extra, which is the ollama.com binary repackaged) for local models
-#   - Hyprland display scaling set to 1.25 (writes via omarchy-hyprland-monitor-scaling
-#     so the displays widget stays in sync and the value survives reboots)
-#   - pi via mise, with ollama as the default provider and minimax-m3:cloud as the
-#     default model
-#   - github-cli (gh) from [extra], configured to launch google-chrome for the
-#     `gh auth login --web` flow instead of falling back to chromium
-#   - tailscale from [extra] (mesh VPN), with tailscaled.service enabled and
-#     the current device added to the tailnet
+#   - google-chrome (AUR on Arch/Omarchy, brew cask on macOS) for browsing
+#   - ollama (Arch extra / brew) for local models
+#   - Hyprland display scaling set to 1.25 on Linux/Omarchy (writes via
+#     omarchy-hyprland-monitor-scaling so the displays widget stays in sync
+#     and the value survives reboots; skipped on macOS)
+#   - kitty (Arch extra / brew) and, on Omarchy only, set it as the default
+#     terminal and seed the Omarchy default kitty.conf
+#   - pi via mise, with ollama as the default provider and minimax-m3:cloud as
+#     the default model
+#   - github-cli (gh from [extra] / brew), configured to launch google-chrome
+#     for the `gh auth login --web` flow instead of falling back to chromium
+#   - tailscale ([extra] / brew cask); on Linux we enable and start
+#     tailscaled.service, on macOS we install the GUI app and the user logs
+#     in via the menu-bar item
 #   - interactive first-run flows (only when --apply is passed): launch Chrome
 #     once so password managers / OAuth logins can be completed, sign in to
-#     ollama.com, run `gh auth login --web`, and run `ollama launch pi --config`
-#     so the ollama provider in pi is wired up with the web-search/fetch tools
+#     ollama.com, run `gh auth login --web`, run `tailscale up` (Linux) or
+#     open the Tailscale app (macOS), and run `ollama launch pi --config` so
+#     the ollama provider in pi is wired up with the web-search/fetch tools
 #
 # Usage: ./install-system.sh [--apply]
 #   --apply  Apply all changes now (default: just install packages and print next steps)
@@ -26,6 +31,16 @@ APPLY=0
 if (( $# > 0 )) && [[ $1 == --apply ]]; then
   APPLY=1
 fi
+
+# Platform detection. The installer targets Omarchy (Arch Linux) by default
+# but also supports macOS via Homebrew. The Omarchy-specific bits (Hyprland
+# scaling, omarchy-default-terminal, systemd units) are gated on IS_LINUX
+# (and on the relevant omarchy-* binary being present).
+case "$(uname -s)" in
+  Linux)  OS="linux";  IS_LINUX=1; IS_MAC=0 ;;
+  Darwin) OS="mac";    IS_LINUX=0; IS_MAC=1 ;;
+  *)      OS="unknown"; IS_LINUX=0; IS_MAC=0 ;;
+esac
 
 CHROME_PKG="google-chrome"
 OLLAMA_PKG="ollama"
@@ -45,54 +60,106 @@ fail() { printf '  ✗ %s\n' "$*" >&2; exit 1; }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
-# Install one or more pacman packages. Prefers sudo -n (non-interactive) when
-# available, so a single root shell can re-run this script unattended; falls
-# back to a plain pacman call which only works as root. Stays silent on
-# already-installed packages via --needed and accepts the usual pacman flags.
-pacman_install() {
-  if ! command_exists pacman; then
-    fail "pacman not found. This installer targets Arch/Omarchy."
-  fi
-  if command_exists sudo && sudo -n true 2>/dev/null; then
-    sudo pacman -S --needed --noconfirm "$@"
+# Run a command with sudo if it's available and the user can elevate
+# non-interactively. When sudo exists but requires a password, we still
+# invoke `sudo` (without -n) so it can prompt — that's the common case for
+# a fresh Arch install where NOPASSWD isn't configured yet. We only fall
+# through to running the command bare when the user is already root.
+maybe_sudo() {
+  if [[ $EUID -eq 0 ]]; then
+    "$@"
+  elif command_exists sudo; then
+    sudo "$@"
   else
-    pacman -S --needed --noconfirm "$@"
+    warn "need root to run: $* — re-run as root or install sudo"
+    "$@"
   fi
 }
 
-# Run a command with sudo when it's available and the user can elevate
-# non-interactively. When sudo -n fails (no passwordless sudo configured) the
-# command is run directly — this is fine for the common case where the script
-# is already executing as root.
-maybe_sudo() {
-  if command_exists sudo && sudo -n true 2>/dev/null; then
-    sudo "$@"
+# Install one or more Arch packages via pacman. Prefers sudo -n (non-
+# interactive) when available, so a single root shell can re-run this script
+# unattended; falls back to interactive sudo (will prompt for a password)
+# when sudo is available but not passwordless, so a non-root user can still
+# install. Already-installed packages are skipped via --needed and pacman
+# accepts the usual flags.
+pacman_install() {
+  if ! command_exists pacman; then
+    fail "pacman not found. This installer targets Arch/Omarchy on Linux."
+  fi
+  if [[ $EUID -eq 0 ]]; then
+    pacman -S --needed --noconfirm "$@"
+  elif command_exists sudo; then
+    sudo pacman -S --needed --noconfirm "$@"
   else
-    "$@"
+    fail "need root to install packages — re-run as root or install sudo"
   fi
 }
 
 # ------------------------------------------------------------------ helpers
 
-# Have we already installed google-chrome (binary or AUR package)?
+# Have we already installed google-chrome (binary or package)?
 chrome_installed() {
   command_exists google-chrome-stable || command_exists google-chrome \
-    || pacman -Qq "$CHROME_PKG" >/dev/null 2>&1
+    || [[ -d "/Applications/Google Chrome.app" ]]
 }
 
 # Have we already installed ollama (binary or package)?
 ollama_installed() {
-  command_exists ollama || pacman -Qq "$OLLAMA_PKG" >/dev/null 2>&1
+  command_exists ollama
 }
 
 # Have we already installed github-cli (gh binary or package)?
 gh_installed() {
-  command_exists gh || pacman -Qq "$GH_PKG" >/dev/null 2>&1
+  command_exists gh
 }
 
-# Have we already installed tailscale?
+# Have we already installed tailscale (CLI, daemon, or macOS app)?
 tailscale_installed() {
-  command_exists tailscale || pacman -Qq "$TAILSCALE_PKG" >/dev/null 2>&1
+  command_exists tailscale \
+    || [[ -d "/Applications/Tailscale.app" ]]
+}
+
+# Install one or more Homebrew formulae/casks on macOS. Detects both
+# `brew` and the Linux Homebrew path; uses `brew install --cask` when the
+# package is a cask (i.e. it ends in -cask or is a known GUI cask list).
+# Re-running is safe; brew skips already-installed packages on its own.
+brew_install() {
+  if ! command_exists brew; then
+    fail "brew not found. Install Homebrew first (https://brew.sh)."
+  fi
+  for pkg in "$@"; do
+    if brew list --formula "$pkg" >/dev/null 2>&1 \
+       || brew list --cask "$pkg" >/dev/null 2>&1; then
+      note "$pkg already installed via brew"
+      continue
+    fi
+    if [[ $pkg == *-cask ]] || is_brew_cask "$pkg"; then
+      echo "Installing $pkg via brew cask..."
+      brew install --cask "$pkg"
+    else
+      echo "Installing $pkg via brew..."
+      brew install "$pkg"
+    fi
+  done
+}
+
+# Decide whether a package name should be installed as a cask. We only flag
+# known GUI casks explicitly so the install function doesn't try to cask-
+# install every package (which would error for formula-only formulae).
+is_brew_cask() {
+  case $1 in
+    google-chrome|tailscale|iterm2) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# True when Homebrew is installed on macOS and the user has accepted the
+# "install command line tools" / App Store readiness prompts. Used to
+# short-circuit macOS installs with a clear message rather than failing
+# inside brew.
+brew_ready() {
+  command_exists brew || return 1
+  brew --version >/dev/null 2>&1
 }
 
 # Is gh already authenticated to github.com? Returns 0 on success, 1 otherwise.
@@ -113,11 +180,11 @@ ollama_signed_in() {
 
 # Is the current device already in a tailnet? `tailscale status` exits 0 when
 # the daemon is logged in to an account, non-zero (typically exit 1) when it
-# is running but un-authenticated. Tailscaled may not be running at all on
-# a fresh install, in which case we treat the device as un-joined.
+# is running but un-authenticated. The daemon may not be running at all on
+# a fresh install (especially on macOS, where Tailscale runs as a menu-bar
+# app), in which case we treat the device as un-joined.
 tailscale_joined() {
   command_exists tailscale || return 1
-  command_exists tailscaled || return 1
   pgrep -x tailscaled >/dev/null 2>&1 || return 1
   tailscale status >/dev/null 2>&1
 }
@@ -173,6 +240,20 @@ install_chrome() {
     return
   fi
 
+  if (( IS_MAC )); then
+    if ! brew_ready; then
+      fail "Homebrew is required to install Chrome on macOS — install from https://brew.sh"
+    fi
+    echo "Installing google-chrome via Homebrew cask..."
+    brew install --cask google-chrome
+    if chrome_installed; then
+      ok "google-chrome installed"
+    else
+      fail "google-chrome install reported success but the app is missing"
+    fi
+    return
+  fi
+
   if ! command_exists yay; then
     fail "yay not found. Install an AUR helper first (e.g. 'pacman -S yay')."
   fi
@@ -196,28 +277,43 @@ install_ollama() {
   if ollama_installed; then
     ok "ollama already installed"
   else
-    # Detect an NVIDIA GPU and prefer ollama-cuda when present, falling back to
-    # the generic CPU build otherwise. The upstream ollama.com install script
-    # does the same autodetect; doing it here means the package is replaceable
-    # later through pacman instead of a manual /usr/local/bin write.
-    local pkg="$OLLAMA_PKG"
-    if lspci 2>/dev/null | grep -qi 'nvidia' && pacman -Si "$OLLAMA_CUDA_PKG" >/dev/null 2>&1; then
-      pkg="$OLLAMA_CUDA_PKG"
-      note "NVIDIA GPU detected — using $OLLAMA_CUDA_PKG"
-    fi
+    if (( IS_MAC )); then
+      if ! brew_ready; then
+        fail "Homebrew is required to install ollama on macOS — install from https://brew.sh"
+      fi
+      echo "Installing ollama via Homebrew..."
+      brew install ollama
+      if ! ollama_installed; then
+        fail "ollama install reported success but binary is missing"
+      fi
+      ok "ollama installed"
+    else
+      # Detect an NVIDIA GPU and prefer ollama-cuda when present, falling back
+      # to the generic CPU build otherwise. The upstream ollama.com install
+      # script does the same autodetect; doing it here means the package is
+      # replaceable later through pacman instead of a manual /usr/local/bin
+      # write.
+      local pkg="$OLLAMA_PKG"
+      if lspci 2>/dev/null | grep -qi 'nvidia' && pacman -Si "$OLLAMA_CUDA_PKG" >/dev/null 2>&1; then
+        pkg="$OLLAMA_CUDA_PKG"
+        note "NVIDIA GPU detected — using $OLLAMA_CUDA_PKG"
+      fi
 
-    echo "Installing $pkg from [extra] (Arch's repackage of the ollama.com build)..."
-    pacman_install "$pkg"
+      echo "Installing $pkg from [extra] (Arch's repackage of the ollama.com build)..."
+      pacman_install "$pkg"
 
-    if ! ollama_installed; then
-      fail "ollama install reported success but binary is missing"
+      if ! ollama_installed; then
+        fail "ollama install reported success but binary is missing"
+      fi
+      ok "ollama installed"
     fi
-    ok "ollama installed"
   fi
 
-  # Make sure the ollama service is running so pi can reach it. Enable + start
-  # in one shot; --now is harmless if the unit is already active.
-  if command_exists systemctl; then
+  # Make sure the ollama service is running so pi can reach it. On Linux we
+  # use systemd; on macOS the brew formula launches a LaunchAgent when the
+  # user logs in, so there's nothing to do here (and the service is owned
+  # by the user's GUI session, not by us).
+  if (( IS_LINUX )) && command_exists systemctl; then
     if maybe_sudo systemctl enable --now ollama.service 2>/dev/null; then
       ok "ollama.service enabled and started"
     else
@@ -229,6 +325,14 @@ install_ollama() {
 # ------------------------------------------------------------------ scaling
 
 apply_scaling() {
+  # Hyprland scaling only applies to the Linux/Omarchy desktop. On macOS
+  # display scaling lives in System Settings and is not something we touch
+  # from a script.
+  if (( IS_MAC )); then
+    note "macOS: skipping Hyprland scaling (set it in System Settings → Displays)"
+    return
+  fi
+
   if ! command_exists omarchy-hyprland-monitor-scaling; then
     warn "omarchy-hyprland-monitor-scaling not found — skipping scaling step"
     return
@@ -261,12 +365,23 @@ install_kitty() {
   # package when missing, drop Omarchy's default config if there isn't one
   # yet (so a fresh machine still gets font/keybinding defaults), and then
   # set kitty as the default terminal so Super+Return, omarchy-launch-terminal,
-  # and xdg-terminal-exec all open it.
+  # and xdg-terminal-exec all open it. On macOS we just install the brew
+  # formula and skip the Omarchy-specific config seeding / xdg-default bits
+  # (Terminal.app / iTerm2 is whatever the user has set in System Settings).
   if ! command_exists kitty; then
-    echo "Installing $KITTY_PKG from [extra]..."
-    if ! pacman_install "$KITTY_PKG"; then
-      warn "could not install kitty — install manually before continuing"
-      return
+    if (( IS_MAC )); then
+      if ! brew_ready; then
+        warn "Homebrew not found — install kitty manually (https://sw.kovidgoyal.net/kitty/)"
+        return
+      fi
+      echo "Installing kitty via Homebrew..."
+      brew install kitty
+    else
+      echo "Installing $KITTY_PKG from [extra]..."
+      if ! pacman_install "$KITTY_PKG"; then
+        warn "could not install kitty — install manually before continuing"
+        return
+      fi
     fi
   fi
 
@@ -275,6 +390,13 @@ install_kitty() {
     return
   fi
   ok "kitty installed"
+
+  # The Omarchy-specific bits (default config seed + xdg default-terminal)
+  # only run on Linux. On macOS, the user's Terminal.app / iTerm2 default
+  # lives in System Settings and isn't something we overwrite.
+  if (( IS_MAC )); then
+    return
+  fi
 
   # Drop the default Omarchy kitty.conf on first install so the font, padding,
   # keybindings, and the theme include are all in place. A user-customised
@@ -349,8 +471,16 @@ install_gh() {
   if gh_installed; then
     ok "github-cli already installed"
   else
-    echo "Installing $GH_PKG from [extra]..."
-    pacman_install "$GH_PKG"
+    if (( IS_MAC )); then
+      if ! brew_ready; then
+        fail "Homebrew is required to install gh on macOS — install from https://brew.sh"
+      fi
+      echo "Installing $GH_PKG via Homebrew..."
+      brew install gh
+    else
+      echo "Installing $GH_PKG from [extra]..."
+      pacman_install "$GH_PKG"
+    fi
     if ! gh_installed; then
       fail "github-cli install reported success but gh binary is missing"
     fi
@@ -358,9 +488,10 @@ install_gh() {
   fi
 
   # Configure gh to launch google-chrome for `gh auth login --web`. Without
-  # this, gh falls back to xdg-open → chromium, which won't have the user's
-  # saved passwords / logged-in sessions. We set the browser unconditionally
-  # because it's idempotent and cheap; re-running the script is a no-op.
+  # this, gh falls back to xdg-open → chromium on Linux and the OS-default
+  # browser on macOS — neither of which will have the user's saved passwords
+  # / logged-in sessions. We set the browser unconditionally because it's
+  # idempotent and cheap; re-running the script is a no-op.
   if command_exists gh; then
     local current_browser
     current_browser="$(gh config get browser 2>/dev/null || true)"
@@ -450,18 +581,30 @@ install_tailscale() {
   if tailscale_installed; then
     ok "tailscale already installed"
   else
-    echo "Installing $TAILSCALE_PKG from [extra]..."
-    pacman_install "$TAILSCALE_PKG"
-    if ! tailscale_installed; then
-      fail "tailscale install reported success but binary is missing"
+    if (( IS_MAC )); then
+      if ! brew_ready; then
+        fail "Homebrew is required to install Tailscale on macOS — install from https://brew.sh"
+      fi
+      echo "Installing tailscale via Homebrew cask..."
+      brew install --cask tailscale
+      if ! tailscale_installed; then
+        fail "tailscale install reported success but the app is missing"
+      fi
+    else
+      echo "Installing $TAILSCALE_PKG from [extra]..."
+      pacman_install "$TAILSCALE_PKG"
+      if ! tailscale_installed; then
+        fail "tailscale install reported success but binary is missing"
+      fi
     fi
     ok "tailscale installed"
   fi
 
   # Start tailscaled so the user can `tailscale up` straight after. The unit
   # is shipped by the package and is enabled by default; we just make sure
-  # it's running on this boot.
-  if command_exists systemctl; then
+  # it's running on this boot. On macOS the Tailscale GUI app starts the
+  # daemon on demand — there is no systemd unit to manage here.
+  if (( IS_LINUX )) && command_exists systemctl; then
     if maybe_sudo systemctl enable --now tailscaled.service 2>/dev/null; then
       ok "tailscaled.service enabled and started"
     else
@@ -470,17 +613,28 @@ install_tailscale() {
   fi
 }
 
-# `tailscale up` is interactive on first run: it prints a login URL that has
-# to be opened in a browser to add the device to the user's tailnet. We only
-# invoke it under --apply and only when the device isn't already joined.
+# `tailscale up` is interactive on first run: on Linux it prints a login URL
+# that has to be opened in a browser to add the device to the user's tailnet;
+# on macOS the GUI app handles sign-in via its menu-bar item. We only invoke
+# the auth step under --apply and only when the device isn't already joined.
 auth_tailscale() {
   if ! command_exists tailscale; then
-    warn "tailscale not installed — skipping 'tailscale up'"
+    warn "tailscale not installed — skipping tailscale sign-in"
     return
   fi
 
   if tailscale_joined; then
     ok "tailscale already joined a tailnet"
+    return
+  fi
+
+  if (( IS_MAC )); then
+    echo "Opening the Tailscale app so you can sign in from the menu bar..."
+    if open -a Tailscale 2>/dev/null; then
+      ok "Tailscale app opened — click 'Log In...' from the menu-bar icon"
+    else
+      warn "could not open Tailscale — launch it from /Applications and click 'Log In...'"
+    fi
     return
   fi
 
@@ -500,9 +654,17 @@ auth_tailscale() {
 # ------------------------------------------------------------------ pi
 
 install_pi() {
+  # Make sure mise is present. On Omarchy it's typically pre-installed; on a
+  # fresh macOS box we install it via Homebrew before falling through to the
+  # standard `mise use -g pi@…` flow.
   if ! command_exists mise; then
-    warn "mise not found — install mise first (e.g. 'pacman -S mise' or https://mise.jdx.dev)"
-    return
+    if (( IS_MAC )) && brew_ready; then
+      echo "Installing mise via Homebrew (pi needs it)..."
+      brew install mise
+    else
+      warn "mise not found — install mise first (e.g. 'pacman -S mise' on Arch, 'brew install mise' on macOS, or https://mise.jdx.dev)"
+      return
+    fi
   fi
 
   if mise ls pi 2>/dev/null | grep -q pi; then
@@ -530,7 +692,7 @@ install_pi() {
 
 # ------------------------------------------------------------------ main
 
-echo "==> System prerequisites"
+echo "==> System prerequisites ($OS)"
 install_chrome
 echo
 install_ollama
@@ -558,18 +720,26 @@ if (( APPLY )); then
   echo
   setup_pi_via_ollama
   echo
-  echo "==> Display"
-  apply_scaling
+  if (( IS_LINUX )); then
+    echo "==> Display"
+    apply_scaling
+  fi
 else
   echo
   echo "==> First-run auth flows (skipped; pass --apply to run them)"
   echo "  • Launch google-chrome so you can sign in to password managers / OAuth"
   echo "  • ollama signin          (sign in to ollama.com for cloud models)"
   echo "  • gh auth login --web    (uses google-chrome instead of chromium)"
-  echo "  • sudo tailscale up      (add this device to your tailnet)"
+  if (( IS_MAC )); then
+    echo "  • open Tailscale app     (sign in from the menu-bar item)"
+  else
+    echo "  • sudo tailscale up      (add this device to your tailnet)"
+  fi
   echo "  • ollama launch pi --config   (wire ollama into pi with web tools)"
-  echo
-  echo "==> Display (skipped; pass --apply to set Hyprland scaling now)"
+  if (( IS_LINUX )); then
+    echo
+    echo "==> Display (skipped; pass --apply to set Hyprland scaling now)"
+  fi
 fi
 
 echo
@@ -599,11 +769,38 @@ if command_exists ollama; then
   fi
 fi
 gh_browser="$(command_exists gh && gh config get browser 2>/dev/null || echo 'unset')"
+
+# Kitty default-terminal status is Omarchy-specific. On macOS we just report
+# whether kitty is installed and let the user pick their default in System
+# Settings (Terminal.app / iTerm2) themselves.
+if command_exists kitty; then
+  if (( IS_MAC )); then
+    kitty_status="installed (macOS — set default in System Settings)"
+  elif command_exists omarchy-default-terminal \
+       && [[ $(omarchy-default-terminal 2>/dev/null) == "kitty" ]]; then
+    kitty_status="installed, default"
+  else
+    kitty_status="installed, not default"
+  fi
+else
+  kitty_status="not installed"
+fi
+
+scaling_status="n/a (macOS)"
+if (( IS_LINUX )); then
+  if command_exists omarchy-hyprland-monitor-scaling; then
+    scaling_status="$(omarchy-hyprland-monitor-scaling 2>/dev/null || echo 'unknown')"
+  else
+    scaling_status="unknown"
+  fi
+fi
+
+echo "  • Platform:             $OS"
 echo "  • Chrome:              $local_chrome"
 echo "  • Ollama:              $ollama_status"
-echo "  • Kitty (default):     $(command_exists kitty && (command_exists omarchy-default-terminal && [ "$(omarchy-default-terminal 2>/dev/null)" = kitty ] && echo "installed, default" || echo "installed, not default") || echo 'not installed')"
+echo "  • Kitty:               $kitty_status"
 echo "  • gh:                  $gh_status  (browser: $gh_browser)"
 echo "  • Tailscale:           $ts_status"
-echo "  • Hyprland scaling:    $(command_exists omarchy-hyprland-monitor-scaling && omarchy-hyprland-monitor-scaling 2>/dev/null || echo 'unknown')"
+echo "  • Hyprland scaling:    $scaling_status"
 echo "  • Pi provider:         $(pi_setting defaultProvider)"
 echo "  • Pi model:            $(pi_setting defaultModel)"
