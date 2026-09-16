@@ -57,6 +57,7 @@ Panel {
 
   function refreshNow() {
     usage.refreshAll(true)
+    refreshClaudeWiring()
   }
 
   function launchAgent() {
@@ -180,10 +181,33 @@ Panel {
   // in their own section; the hero just says what this is.
   function heroMeta(p) {
     if (!p) return ""
-    if (String(p.usageStatusText || "") !== "") return p.usageStatusText
+    var status = statusTextFor(p)
+    if (status !== "") return status
+    if (noticeSuppressed(p)) return ollamaPlanLabel()
     var tier = String(p.tierLabel || "")
     if (tier === "") return "Subscription"
     return tier.charAt(0).toUpperCase() + tier.slice(1)
+  }
+
+  // The collector cannot know that this machine's Claude Code is served by
+  // Ollama, so it keeps reporting "Waiting for auth" and advising a login that
+  // would buy nothing. Hide that notice — hero line and card both — while the
+  // tab carries no Anthropic limit data at all. Signing in brings the meters,
+  // and every genuine message, back on its own.
+  function noticeSuppressed(p) {
+    return root.ollamaClaude && !!p && p.providerId === "claude" && (p.limits || []).length === 0
+  }
+
+  function statusTextFor(p) {
+    if (!p || noticeSuppressed(p)) return ""
+    return String(p.usageStatusText || "")
+  }
+
+  // "Ollama Max" — the plan the local server reports, once it has answered.
+  function ollamaPlanLabel() {
+    var plan = String(root.ollamaPlan || "").trim()
+    if (plan === "") return "Ollama"
+    return "Ollama " + plan.charAt(0).toUpperCase() + plan.slice(1)
   }
 
   // Local calendar date, recomputed from nowMs so a panel left open across
@@ -307,6 +331,7 @@ Panel {
     nowMs = Date.now()
     if (panelFlick) panelFlick.contentY = 0
     usage.refreshLimits()
+    refreshClaudeWiring()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -336,6 +361,134 @@ Panel {
         return
       }
     }
+  }
+
+  // ------------------------------------------------------ claude on ollama
+  //
+  // Claude Code here can run through Ollama (`ol` -> `ollama launch claude`),
+  // which points ANTHROPIC_BASE_URL at the local server. Those sessions spend
+  // no Anthropic quota, so the collector's "Waiting for auth" notice describes
+  // a login that would buy nothing — see noticeSuppressed() below for what the
+  // panel does about it.
+  //
+  // Nothing in Claude Code's own files names its endpoint, so the wiring is
+  // read from the two places it is recorded: the integration `ollama launch`
+  // writes for itself, and a base URL that leaves Anthropic for a loopback
+  // host.
+
+  property bool ollamaLauncherWired: false
+  property bool ollamaBaseUrl: false
+  property string ollamaPlan: ""
+
+  readonly property bool ollamaClaude: ollamaLauncherWired || ollamaBaseUrl
+
+  // Separates the two config files in one read; no JSON file contains it.
+  readonly property string settingsSplit: "==odessa-agents-settings=="
+
+  // Tolerates a bare host:port the way `ol` does with OLLAMA_HOST.
+  function isOllamaEndpoint(value) {
+    var url = String(value || "").trim().toLowerCase()
+    if (url === "") return false
+    if (url.indexOf("ollama") >= 0 || url.indexOf("11434") >= 0) return true
+    if (url.indexOf("://") < 0) url = "http://" + url
+    return /^[a-z][a-z0-9+.-]*:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])([:/]|$)/.test(url)
+  }
+
+  // Both files are read on open rather than watched. A watcher here would be
+  // wrong twice over: a config that appears or disappears mid-session emits
+  // nothing for a file this process has not already loaded, and the answer only
+  // matters while the panel is up — which is also when the reader can re-run.
+  Process {
+    id: wiringProcess
+    running: false
+
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.readClaudeWiring(text)
+    }
+  }
+
+  function refreshClaudeWiring() {
+    if (wiringProcess.running) return
+    // One command for both files, so the marker and a hand-set base URL cannot
+    // land out of step with each other.
+    wiringProcess.command = ["bash", "-c",
+      "cat \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json\" 2>/dev/null; "
+      + "printf '\\n%s\\n' " + settingsSplit + "; "
+      + "cat \"$HOME/.ollama/config.json\" 2>/dev/null"]
+    wiringProcess.running = true
+  }
+
+  function readClaudeWiring(raw) {
+    var text = String(raw || "")
+    var splitAt = text.indexOf(settingsSplit)
+    var settingsText = splitAt >= 0 ? text.slice(0, splitAt) : ""
+    var ollamaText = splitAt >= 0 ? text.slice(splitAt + settingsSplit.length) : text
+
+    // `ollama launch claude` records the integration it configured, with the
+    // models it wired in. Its presence is this machine's proof that Claude Code
+    // is served by Ollama, and it outlives whichever model is current.
+    var wired = false
+    try {
+      var config = JSON.parse(ollamaText.trim() || "{}")
+      wired = !!(config && config.integrations && config.integrations.claude)
+    } catch (e) {
+      wired = false
+    }
+    root.ollamaLauncherWired = wired
+
+    // A base URL set by hand — in settings.json or in the session environment —
+    // counts too, so a machine wired up without the launcher is still seen.
+    var base = ""
+    try {
+      var settings = JSON.parse(settingsText.trim() || "{}")
+      base = settings && settings.env ? String(settings.env.ANTHROPIC_BASE_URL || "") : ""
+    } catch (e) {
+      base = ""
+    }
+    if (base === "") base = String(Quickshell.env("ANTHROPIC_BASE_URL") || "")
+    root.ollamaBaseUrl = isOllamaEndpoint(base)
+
+    // The plan is only worth asking for once the wiring is known, which is why
+    // this read leads the two and hands off to the fetch.
+    refreshOllamaPlan()
+  }
+
+  // The plan the local server reports for the signed-in Ollama account, so the
+  // hero can name it the way it names a subscription tier.
+  Process {
+    id: planProcess
+    running: false
+
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.readOllamaPlan(text)
+    }
+  }
+
+  function ollamaEndpoint() {
+    var host = String(Quickshell.env("OLLAMA_HOST") || "").trim()
+    if (host === "") return "http://127.0.0.1:11434"
+    if (host.indexOf("://") < 0) host = "http://" + host
+    return host.replace(/\/+$/, "")
+  }
+
+  function refreshOllamaPlan() {
+    if (!root.ollamaClaude || planProcess.running) return
+    planProcess.command = ["curl", "-sS", "--max-time", "5", "-X", "POST",
+                           root.ollamaEndpoint() + "/api/me"]
+    planProcess.running = true
+  }
+
+  function readOllamaPlan(raw) {
+    var plan = ""
+    try {
+      var payload = JSON.parse(String(raw || ""))
+      plan = payload && payload.plan ? String(payload.plan) : ""
+    } catch (e) {
+      plan = ""
+    }
+    root.ollamaPlan = plan
   }
 
   Main {
@@ -523,7 +676,7 @@ Panel {
 
           // ---------- Status ----------
           BorderSurface {
-            visible: !!root.provider && String(root.provider.usageStatusText || "") !== ""
+            visible: root.statusTextFor(root.provider) !== ""
             width: parent.width
             implicitHeight: statusText.implicitHeight + Style.spacing.xl * 2
             color: root.alpha(root.urgent, 0.10)

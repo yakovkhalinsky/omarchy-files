@@ -65,6 +65,14 @@ clean Omarchy install or on top of an existing install.
   (`open -a Tailscale`) instead of `sudo tailscale up`.
 - The Pi collector reads `~/.pi/agent/sessions/*.jsonl`. It produces no output
   until Pi has recorded sessions.
+- `plugin/odessa.agents/` hides the claude tab's "Waiting for auth" notice while
+  Claude Code is wired to Ollama. The collector keeps writing it — it has no way
+  to know the endpoint — so the panel reads the wiring for itself every time it
+  opens: the `claude` integration in `~/.ollama/config.json`, or an
+  `ANTHROPIC_BASE_URL` in `~/.claude/settings.json` (or the session environment)
+  that points at a loopback host. The hero then names the plan the local server
+  reports (`POST /api/me`, so "Ollama Max"). The notice comes back on its own
+  once the wiring is gone, or when an Anthropic credential supplies real limits.
 - `omarchy-agent-usage-update` is installed to `~/.local/bin` and, when the
   Pi tool's bin directory exists, also to `~/.pi/agent/bin`. This ensures the
   wrapper shadows the packaged Omarchy updater and refreshes the Pi record
